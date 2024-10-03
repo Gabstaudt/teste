@@ -1,0 +1,116 @@
+import { Component, OnInit } from '@angular/core'; // Importa decorators e interfaces do Angular
+import { FormBuilder, FormGroup, Validators } from '@angular/forms'; // Importa formulários reativos
+import { Router } from '@angular/router'; // Importa a funcionalidade de navegação
+import { AuthService } from '../services/auth.service'; // Importa o serviço de autenticação
+
+// Interface para os dados de login
+interface LoginData {
+  comando: number;           // Comando da requisição
+  plataforma: number;       // Plataforma do dispositivo
+  versao: number;           // Versão da aplicação
+  idDispositivo: string;    // ID do dispositivo
+  login: string;            // Nome de usuário
+  senha: string;            // Senha do usuário
+}
+
+@Component({
+  selector: 'app-login', // Seletor do componente
+  templateUrl: './login.component.html', // Template HTML do componente
+  styleUrls: ['./login.component.scss'] // Estilos do componente
+})
+export class LoginComponent implements OnInit {
+  loginForm: FormGroup; // Formulário reativo de login
+  loginError: string | null = null; // Mensagem de erro para login
+  loginHistory: LoginData[] = []; // Array para armazenar histórico de logins
+  isModalOpen = false; // Estado do modal de solicitação
+
+  constructor(private fb: FormBuilder, private authService: AuthService, private router: Router) {
+    // Inicializa o formulário com campos de validação
+    this.loginForm = this.fb.group({
+      username: ['', [Validators.required]], // Campo de usuário obrigatório
+      password: ['', [Validators.required]], // Campo de senha obrigatório
+      rememberMe: [false] // Opção de "lembrar-me"
+    });
+  }
+
+  ngOnInit(): void {
+    // Carrega o usuário lembrado ao iniciar
+    this.loadRememberedUser();
+  }
+
+  onFocus(): void {
+    // Limpa a mensagem de erro ao focar no campo
+    this.loginError = null;
+  }
+
+  onSubmit(): void {
+    // Verifica se o formulário é válido
+    if (this.loginForm.valid) {
+      const { username, password, rememberMe } = this.loginForm.value;
+  
+      // Define os dados a serem transmitidos para o login
+      const loginData: LoginData = {
+        comando: 240,
+        plataforma: 3,
+        versao: 1,
+        idDispositivo: 'qualquer',
+        login: username,
+        senha: password
+      };
+  
+      // Chama o serviço de autenticação
+      this.authService.login(username, password).subscribe(
+        (response) => {
+          console.log('Login bem-sucedido:', response);
+
+          // Verifica se a resposta indica um login já existente (resposta 2)
+          if (response.respostaOK === 2) {
+            // Armazena dados do usuário no localStorage
+            localStorage.setItem('SessaoID', response.SessaoID);
+            localStorage.setItem('IdUsuario', response.IdUsuario.toString());
+            localStorage.setItem('NomeUsuario', response.NomeUsuario);
+            localStorage.setItem('PrivilegioUsuario', response.PrivilegioUsuario.toString());
+            localStorage.setItem('UnidadeUsuario', response.UnidadeUsuario.toString());
+            localStorage.setItem('AcessoProducao', response.AcessoProducao.toString());
+            localStorage.setItem('AcessoEmpresa1', response.AcessoEmpresa1.toString());
+            localStorage.setItem('AcessoEmpresa2', response.AcessoEmpresa2.toString());
+          }
+
+          // Adiciona os dados do login ao histórico
+          this.loginHistory.push(loginData);
+  
+          // Verifica se a opção de "lembrar-me" está ativa
+          if (rememberMe) {
+            localStorage.setItem('rememberedUser', username);
+          } else {
+            localStorage.removeItem('rememberedUser');
+          }
+  
+          // Navega para a página de entrada
+          this.router.navigate(['/entrada']);
+        },
+        (error) => {
+          console.error('Erro no login:', error);
+          this.loginError = 'Usuário ou senha incorretos'; // Mensagem de erro
+        }
+      );
+    }
+  }
+
+  openModal(): void { // Abre o modal de solicitação
+    this.isModalOpen = true;
+  }
+
+  closeModal(): void { // Fecha o modal de solicitação
+    this.isModalOpen = false;
+  }
+
+  private loadRememberedUser(): void {
+    // Carrega o usuário salvo no localStorage
+    const rememberedUser = localStorage.getItem('rememberedUser');
+    if (rememberedUser) {
+      // Preenche o formulário com o usuário lembrado
+      this.loginForm.patchValue({ username: rememberedUser, rememberMe: true });
+    }
+  }
+}
