@@ -19,19 +19,28 @@ export class EntradaService {
     const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }); // Define os cabeçalhos da requisição
 
     // Comandos
-    const comandoSupervisao = 254;  // FE em hexadecimal
-    const comandoEstrutura = 237;   // ED em hexadecimal
+    const comandoSupervisao = 254; // O comando 254 em hexadecimal é equivalente a FE
+    const comandoEstrutura = 237;  // O comando 237 em hexadecimal é equivalente a ED
 
-    // Construir os bytes da requisição na ordem correta
-    const body = this.gerarBytesRequisicao(comandoSupervisao, sessaoId, comandoEstrutura);
+    // Construir os bytes da requisição
+    const body = this.gerarBytesRequisicao(sessaoId, comandoSupervisao, comandoEstrutura);
+
+    // Log para verificar o que está sendo enviado
+    console.log('Corpo da requisição (bytes enviados):', new Uint8Array(body));
 
     // Realiza a requisição POST
     return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+      // Manipulação da resposta
       map(response => {
         const byteArray = new Uint8Array(response); // Converte a resposta em um array de bytes
-        console.log('Resposta recebida em bytes:', byteArray); // Console log para ver a resposta recebida
+
+        // Log para verificar a resposta recebida
+        console.log('Resposta do servidor (bytes recebidos):', byteArray);
+
         return this.parseSecondResponse(byteArray); // Chama a função que interpreta os bytes da resposta
       }),
+
+      // Tratamento de erros
       catchError(error => {
         console.error('Erro ao fazer a segunda requisição', error); // Loga o erro no console
         return throwError(() => error); 
@@ -39,30 +48,115 @@ export class EntradaService {
     );
   }
 
-  // Método para gerar os bytes da requisição na ordem correta
-  private gerarBytesRequisicao(comandoSupervisao: number, sessaoId: string, comandoEstrutura: number): ArrayBuffer {
-    // Converte os comandos e a sessão ID para bytes
-    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]); // FE
-    const sessaoIdBytes = this.encodeWithLength(sessaoId); // sessão ID convertida em bytes
-    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]); // ED
+  // Método para gerar os bytes da requisição
+  private gerarBytesRequisicao(sessaoId: string, comandoSupervisao: number, comandoEstrutura: number): ArrayBuffer {
+    // Converte tudo para bytes
+    const sessaoIdBytes = this.encodeWithLength(sessaoId); // sessão-bytes
+    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]); // FE (254)
+    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]); // ED (237)
 
-    // Junta os arrays de bytes na ordem: Comando Supervisão -> Sessão ID -> Comando Estrutura
-    const combinedBytes = new Uint8Array(comandoSupervisaoBytes.length + sessaoIdBytes.length + comandoEstruturaBytes.length);
-    combinedBytes.set(comandoSupervisaoBytes, 0); // Primeiro, o comando de supervisão
-    combinedBytes.set(sessaoIdBytes, comandoSupervisaoBytes.length); // Depois, a sessão ID
-    combinedBytes.set(comandoEstruturaBytes, comandoSupervisaoBytes.length + sessaoIdBytes.length); // Por último, o comando de leitura
+    // Log para verificar os comandos
+    console.log('Sessão ID (bytes):', sessaoIdBytes);
+    console.log('Comando de Supervisão (FE - 254):', comandoSupervisaoBytes);
+    console.log('Comando de Leitura Estrutura (ED - 237):', comandoEstruturaBytes);
+
+    // Junta os arrays de bytes na ordem correta: comandoSupervisao, sessaoId, comandoEstrutura
+    const combinedBytes = new Uint8Array(sessaoIdBytes.length + comandoSupervisaoBytes.length + comandoEstruturaBytes.length);
+    combinedBytes.set(comandoSupervisaoBytes, 0); // Primeiro o comando de supervisão (FE)
+    combinedBytes.set(sessaoIdBytes, comandoSupervisaoBytes.length); // Depois a Sessão ID
+    combinedBytes.set(comandoEstruturaBytes, comandoSupervisaoBytes.length + sessaoIdBytes.length); // Por último o comando de leitura (ED)
 
     return combinedBytes.buffer; 
   }
 
   // Função para interpretar os bytes da resposta da segunda requisição
   private parseSecondResponse(bytes: Uint8Array): Setor[] {
-    let offset = 0;
+    let offset = 0; // Variável para rastrear a posição atual no array de bytes
 
-    // Lógica para ler e processar a resposta (mantida como antes)
-    // ...
-    
-    return []; // Retorna a lista de setores processada (placeholder)
+    // Lê a resposta de status
+    const respostaOK = bytes[offset];
+    console.log('Status da resposta:', respostaOK); // Log para verificar o status da resposta
+    offset += 1;
+
+    // Última versão
+    const ultimaVersao = (bytes[offset] << 8) | bytes[offset + 1];
+    console.log('Última versão:', ultimaVersao); // Log para verificar a versão
+    offset += 2;
+
+    // Quantidade de setores
+    const quantidadeSetores = (bytes[offset] << 8) | bytes[offset + 1];
+    console.log('Quantidade de setores:', quantidadeSetores); // Log para verificar a quantidade de setores
+    offset += 2;
+
+    const setores: Setor[] = []; // Array para armazenamento de setores
+
+    // Laço 1: para cada setor
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const setor = new Setor(); // Cria uma nova instância do modelo Setor
+
+      // Lê o ID do setor
+      setor.id = (bytes[offset] << 8) | bytes[offset + 1];
+      console.log('ID do Setor:', setor.id); // Log para verificar o ID do setor
+      offset += 2;
+
+      // Lê o tamanho do nome do setor
+      const nomeSetorLength = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+      setor.nome = this.bytesToString(bytes.slice(offset, offset + nomeSetorLength)); // Lê o nome do setor e converte de bytes para string
+      console.log('Nome do Setor:', setor.nome); // Log para verificar o nome do setor
+      offset += nomeSetorLength;
+
+      // Lê a quantidade de tags no setor
+      const quantidadeTags = bytes[offset];
+      console.log('Quantidade de Tags no Setor:', quantidadeTags); // Log para verificar a quantidade de tags
+      offset += 1;
+      const tags: Map<number, Tag> = new Map(); // Armazena as tags do setor
+
+      // Laço 2: Para cada tag no setor
+      for (let j = 0; j < quantidadeTags; j++) {
+        const tag = new Tag();
+        tag.id = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        const nomeTagLength = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        tag.nome = this.bytesToString(bytes.slice(offset, offset + nomeTagLength)); // Lê o nome da tag e converte de bytes para string
+        offset += nomeTagLength;
+
+        console.log(`Tag ${j + 1} - ID:`, tag.id, 'Nome:', tag.nome); // Log para verificar a ID e nome da tag
+
+        tags.set(tag.id, tag); // Adiciona a tag ao mapa de tags do setor
+      }
+
+      setor.tags = tags; // Atribui o mapa de tags ao setor
+
+      // Lê a quantidade de alarmes no setor
+      const quantidadeAlarmes = bytes[offset];
+      console.log('Quantidade de Alarmes no Setor:', quantidadeAlarmes); // Log para verificar a quantidade de alarmes
+      offset += 1;
+      const alarmes: Map<number, Alarme> = new Map(); // Cria um mapa para armazenar os alarmes do setor
+
+      // Laço 3: Para cada alarme no setor
+      for (let k = 0; k < quantidadeAlarmes; k++) {
+        const alarme = new Alarme();
+        alarme.id = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        const nomeAlarmeLength = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        alarme.nome = this.bytesToString(bytes.slice(offset, offset + nomeAlarmeLength));
+        offset += nomeAlarmeLength;
+
+        console.log(`Alarme ${k + 1} - ID:`, alarme.id, 'Nome:', alarme.nome); // Log para verificar a ID e nome do alarme
+
+        alarmes.set(alarme.id, alarme);
+      }
+
+      setor.alarmes = alarmes; 
+      setores.push(setor); 
+    }
+
+    return setores; // Retorna a lista de setores processada
   }
 
   // Função para converter bytes em string
@@ -70,7 +164,7 @@ export class EntradaService {
     return new TextDecoder('utf-8').decode(bytes); // Converte um array de bytes para uma string usando o decodificador UTF-8
   }
 
-  // Função para converter string sessão ID para bytes com comprimento
+  // string sessão id pra bytes
   private encodeWithLength(str: string): Uint8Array {
     const stringBytes = new TextEncoder().encode(str); 
     const length = stringBytes.length; 
