@@ -1,0 +1,16 @@
+import { Component } from '@angular/core';
+import { EntradaService } from './entrada.service';
+
+@Component({
+  selector: 'app-exemplo',
+  templateUrl: './exemplo.component.html',
+})
+export class ExemploComponent {
+
+  constructor(private entradaService: EntradaService) {}
+
+  fazerSegundaRequisicao(byteArray: Uint8Array) {
+    const setores = this.entradaService.processarResposta(byteArray);
+    console.log(setores); // Agora você tem os setores com tags e alarmes
+  }
+}
