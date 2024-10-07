@@ -1,0 +1,88 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable, throwError } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
+import { Alarme } from '../../models/alarme.model';
+import { Setor } from '../../models/setor.model';
+import { Tag } from '../../models/tag.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class EntradaService {
+  private apiUrl = 'http://10.20.96.221:8043/dados'; // URL da requisição
+
+  constructor(private http: HttpClient) {}
+
+  // Função para fazer a segunda requisição, recebendo a Sessão ID como parâmetro
+  fazerSegundaRequisicao(sessaoId: string): Observable<Setor[]> {
+    const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }); // Define os cabeçalhos da requisição
+
+    // Comandos
+    const comandoSupervisao = 254;  // FE em hexadecimal
+    const comandoEstrutura = 237;   // ED em hexadecimal
+
+    // Construir os bytes da requisição na ordem correta
+    const body = this.gerarBytesRequisicao(comandoSupervisao, sessaoId, comandoEstrutura);
+
+    // Realiza a requisição POST
+    return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+      map(response => {
+        const byteArray = new Uint8Array(response); // Converte a resposta em um array de bytes
+        console.log('Resposta recebida em bytes:', byteArray); // Console log para ver a resposta recebida
+        return this.parseSecondResponse(byteArray); // Chama a função que interpreta os bytes da resposta
+      }),
+      catchError(error => {
+        console.error('Erro ao fazer a segunda requisição', error); // Loga o erro no console
+        return throwError(() => error); 
+      })
+    );
+  }
+
+  // Método para gerar os bytes da requisição na ordem correta
+  private gerarBytesRequisicao(comandoSupervisao: number, sessaoId: string, comandoEstrutura: number): ArrayBuffer {
+    // Converte os comandos e a sessão ID para bytes
+    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]); // FE
+    const sessaoIdBytes = this.encodeWithLength(sessaoId); // sessão ID convertida em bytes
+    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]); // ED
+
+    // Junta os arrays de bytes na ordem: Comando Supervisão -> Sessão ID -> Comando Estrutura
+    const combinedBytes = new Uint8Array(comandoSupervisaoBytes.length + sessaoIdBytes.length + comandoEstruturaBytes.length);
+    combinedBytes.set(comandoSupervisaoBytes, 0); // Primeiro, o comando de supervisão
+    combinedBytes.set(sessaoIdBytes, comandoSupervisaoBytes.length); // Depois, a sessão ID
+    combinedBytes.set(comandoEstruturaBytes, comandoSupervisaoBytes.length + sessaoIdBytes.length); // Por último, o comando de leitura
+
+    return combinedBytes.buffer; 
+  }
+
+  // Função para interpretar os bytes da resposta da segunda requisição
+  private parseSecondResponse(bytes: Uint8Array): Setor[] {
+    let offset = 0;
+
+    // Lógica para ler e processar a resposta (mantida como antes)
+    // ...
+    
+    return []; // Retorna a lista de setores processada (placeholder)
+  }
+
+  // Função para converter bytes em string
+  private bytesToString(bytes: Uint8Array): string {
+    return new TextDecoder('utf-8').decode(bytes); // Converte um array de bytes para uma string usando o decodificador UTF-8
+  }
+
+  // Função para converter string sessão ID para bytes com comprimento
+  private encodeWithLength(str: string): Uint8Array {
+    const stringBytes = new TextEncoder().encode(str); 
+    const length = stringBytes.length; 
+
+    const lengthBytes = new Uint8Array(2);
+    lengthBytes[0] = (length >> 8) & 0xff; 
+    lengthBytes[1] = length & 0xff;        
+
+    const combined = new Uint8Array(lengthBytes.length + stringBytes.length);
+    combined.set(lengthBytes, 0); 
+    combined.set(stringBytes, lengthBytes.length); 
+
+    return combined;
+  }
+}
