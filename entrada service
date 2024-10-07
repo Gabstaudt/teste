@@ -1,0 +1,141 @@
+import { Injectable } from '@angular/core';
+import { Setor } from './models/setor.model';
+import { Tag } from './models/tag.model';
+import { Alarme } from './models/alarme.model';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class EntradaService {
+  
+  constructor() {}
+
+  // Função para processar a segunda requisição
+  processarResposta(byteArray: Uint8Array): Setor[] {
+    let offset = 0;
+
+    // Lendo resposta inicial
+    const sessaoOK = byteArray[offset];
+    offset += 1;
+
+    const ultimaVersao = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+    offset += 2;
+
+    const quantidadeSetores = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+    offset += 2;
+
+    const setores: Setor[] = [];
+
+    // Laço 1: Processando Setores
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const setor = new Setor();
+      setor.id = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+      offset += 2;
+
+      const nomeSetorLength = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+      offset += 2;
+      setor.nome = this.bytesToString(byteArray.slice(offset, offset + nomeSetorLength));
+      offset += nomeSetorLength;
+
+      setor.latitude = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+      offset += 4;
+
+      setor.longitude = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+      offset += 4;
+
+      setor.unidade = byteArray[offset];
+      offset += 1;
+
+      setor.subunidade = byteArray[offset];
+      offset += 1;
+
+      setor.status = byteArray[offset];
+      offset += 1;
+
+      setor.tipo = byteArray[offset];
+      offset += 1;
+
+      const tamanhoArrayGrafico = byteArray[offset];
+      offset += 1;
+
+      const quantidadeTags = byteArray[offset];
+      offset += 1;
+
+      // Laço 2: Processando Tags
+      for (let j = 0; j < quantidadeTags; j++) {
+        const tag = new Tag();
+        tag.id = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+
+        const nomeTagLength = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+        tag.nome = this.bytesToString(byteArray.slice(offset, offset + nomeTagLength));
+        offset += nomeTagLength;
+
+        tag.tipo = byteArray[offset];
+        offset += 1;
+
+        tag.max = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        tag.min = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        tag.status = byteArray[offset];
+        offset += 1;
+
+        setor.tags.set(tag.id, tag);
+      }
+
+      // Laço 3: Processando Alarmes
+      const quantidadeAlarmes = byteArray[offset];
+      offset += 1;
+
+      for (let k = 0; k < quantidadeAlarmes; k++) {
+        const alarme = new Alarme();
+        alarme.id = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+
+        alarme.idTag = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+
+        const nomeAlarmeLength = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+        alarme.nome = this.bytesToString(byteArray.slice(offset, offset + nomeAlarmeLength));
+        offset += nomeAlarmeLength;
+
+        alarme.tipo = byteArray[offset];
+        offset += 1;
+
+        alarme.valorEntrada = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        alarme.valorSaida = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        alarme.ativo = !!byteArray[offset];
+        offset += 1;
+
+        setor.alarmes.set(alarme.id, alarme);
+      }
+
+      setores.push(setor);
+    }
+
+    return setores; // Lista de setores com tags e alarmes associados
+  }
+
+  // Funções auxiliares
+  private bytesToInt16(bytes: Uint8Array): number {
+    return (bytes[0] << 8) | bytes[1];
+  }
+
+  private bytesToFloat(bytes: Uint8Array): number {
+    const view = new DataView(bytes.buffer);
+    return view.getFloat32(0);
+  }
+
+  private bytesToString(bytes: Uint8Array): string {
+    return new TextDecoder().decode(bytes);
+  }
+}
