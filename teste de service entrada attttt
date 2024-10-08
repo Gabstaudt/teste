@@ -1,0 +1,192 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable, throwError } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
+import { Alarme } from '../../models/alarme.model';
+import { Setor } from '../../models/setor.model';
+import { Tag } from '../../models/tag.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class EntradaService {
+  private apiUrl = 'http://10.20.96.221:8043/dados';
+
+  constructor(private http: HttpClient) {}
+
+  fazerSegundaRequisicao(sessaoId: string): Observable<any> {
+    const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
+
+    const comandoSupervisao = 254;
+    const comandoEstrutura = 237;
+
+    const body = this.gerarBytesRequisicao(sessaoId, comandoSupervisao, comandoEstrutura);
+
+    console.log('Corpo da requisição (bytes):', body);
+
+    return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+      map(response => {
+        const byteArray = new Uint8Array(response);
+        console.log('Resposta recebida (bytes):', byteArray);
+
+        const setores = this.parseSecondResponse(byteArray);
+        console.log('Setores processados:', setores);
+
+        return setores;
+      }),
+
+      catchError(error => {
+        console.error('Erro ao fazer a segunda requisição', error);
+        return throwError(() => error);
+      })
+    );
+  }
+
+  private gerarBytesRequisicao(sessaoId: string, comandoSupervisao: number, comandoEstrutura: number): ArrayBuffer {
+    const sessaoIdBytes = this.encodeWithLength(sessaoId);
+
+    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]);
+    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]);
+
+    const combinedBytes = new Uint8Array(comandoSupervisaoBytes.length + sessaoIdBytes.length + comandoEstruturaBytes.length);
+    combinedBytes.set(comandoSupervisaoBytes, 0);
+    combinedBytes.set(sessaoIdBytes, comandoSupervisaoBytes.length);
+    combinedBytes.set(comandoEstruturaBytes, comandoSupervisaoBytes.length + sessaoIdBytes.length);
+
+    return combinedBytes.buffer;
+  }
+
+  private parseSecondResponse(bytes: Uint8Array): Setor[] {
+    let offset = 0;
+
+    const respostaOK = bytes[offset];
+    console.log('Resposta de status:', respostaOK);
+    offset += 1;
+
+    const ultimaVersao = (bytes[offset] << 8) | bytes[offset + 1];
+    console.log('Última versão:', ultimaVersao);
+    offset += 2;
+
+    const quantidadeSetores = (bytes[offset] << 8) | bytes[offset + 1];
+    console.log('Quantidade de setores:', quantidadeSetores);
+    offset += 2;
+
+    const setores: Setor[] = [];
+
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const setor = new Setor();
+
+      setor.id = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+
+      const nomeSetorLength = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+      setor.nome = this.bytesToString(bytes.slice(offset, offset + nomeSetorLength));
+      offset += nomeSetorLength;
+
+      setor.endereco = this.bytesToString(bytes.slice(offset, offset + 50)).trim(); // 50 bytes para o endereço
+      offset += 50;
+
+      setor.latitude = this.bytesToFloat(bytes.slice(offset, offset + 4)); // Lê 4 bytes para latitude
+      offset += 4;
+
+      setor.longitude = this.bytesToFloat(bytes.slice(offset, offset + 4)); // Lê 4 bytes para longitude
+      offset += 4;
+
+      setor.unidade = bytes[offset];
+      offset += 1;
+
+      setor.subunidade = bytes[offset];
+      offset += 1;
+
+      setor.status = bytes[offset];
+      offset += 1;
+
+      setor.tipo = bytes[offset];
+      offset += 1;
+
+      const tamanhoGrafico = bytes[offset];
+      offset += 1;
+
+      // Lê o array gráfico
+      const arrayGrafico = new Uint16Array(tamanhoGrafico);
+      for (let j = 0; j < tamanhoGrafico; j++) {
+        arrayGrafico[j] = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+      }
+
+      const quantidadeTags = bytes[offset];
+      console.log(`Setor ${setor.nome} - Quantidade de tags:`, quantidadeTags);
+      offset += 1;
+
+      const tags: Tag[] = [];
+      for (let j = 0; j < quantidadeTags; j++) {
+        const tag = new Tag();
+        tag.id = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        const nomeTagLength = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        tag.nome = this.bytesToString(bytes.slice(offset, offset + nomeTagLength));
+        offset += nomeTagLength;
+
+        tags.push(tag);
+      }
+
+      setor.tags = tags;
+
+      const quantidadeAlarmes = bytes[offset];
+      console.log(`Setor ${setor.nome} - Quantidade de alarmes:`, quantidadeAlarmes);
+      offset += 1;
+
+      const alarmes: Alarme[] = [];
+      for (let k = 0; k < quantidadeAlarmes; k++) {
+        const alarme = new Alarme();
+        alarme.id = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        const nomeAlarmeLength = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        alarme.nome = this.bytesToString(bytes.slice(offset, offset + nomeAlarmeLength));
+        offset += nomeAlarmeLength;
+
+        alarmes.push(alarme);
+      }
+
+      setor.alarmes = alarmes;
+      setores.push(setor);
+      console.log(`Setor recebido: ${setor.nome}`);
+    }
+
+    return setores;
+  }
+
+  private bytesToString(bytes: Uint8Array): string {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
+  private bytesToFloat(bytes: Uint8Array): number {
+    const buffer = new ArrayBuffer(4);
+    const view = new Float32Array(buffer);
+    const intView = new Uint8Array(buffer);
+    for (let i = 0; i < 4; i++) {
+      intView[i] = bytes[i];
+    }
+    return view[0];
+  }
+
+  private encodeWithLength(str: string): Uint8Array {
+    const stringBytes = new TextEncoder().encode(str);
+    const length = stringBytes.length;
+
+    const lengthBytes = new Uint8Array(2);
+    lengthBytes[0] = (length >> 8) & 0xff;
+    lengthBytes[1] = length & 0xff;
+
+    const combined = new Uint8Array(lengthBytes.length + stringBytes.length);
+    combined.set(lengthBytes, 0);
+    combined.set(stringBytes, lengthBytes.length);
+
+    return combined;
+  }
+}
