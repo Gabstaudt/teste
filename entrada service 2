@@ -1,0 +1,172 @@
+import { Injectable } from '@angular/core';
+import { Setor } from './models/setor.model';
+import { Tag } from './models/tag.model';
+import { Alarme } from './models/alarme.model';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class EntradaService {
+  
+  constructor() {}
+
+  // Função para gerar os bytes da requisição com 2 bytes declarando o tamanho da sessão ID
+  gerarRequisicao(sessaoId: string, comandoSupervisao: number, comandoEstrutura: number): ArrayBuffer {
+    const sessaoIdBytes = this.encodeWithLength(sessaoId); // Adiciona os bytes de tamanho + sessão ID
+    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]); // Comando de supervisão
+    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]);   // Comando de estrutura
+
+    // Junta os arrays de bytes --> cria o array buffer
+    const combinedBytes = new Uint8Array(
+      sessaoIdBytes.length + comandoSupervisaoBytes.length + comandoEstruturaBytes.length
+    );
+    combinedBytes.set(sessaoIdBytes, 0); // Define os bytes da sessão ID com os bytes de tamanho
+    combinedBytes.set(comandoSupervisaoBytes, sessaoIdBytes.length); // Define o comando de supervisão
+    combinedBytes.set(comandoEstruturaBytes, sessaoIdBytes.length + comandoSupervisaoBytes.length); // Define o comando de estrutura
+
+    return combinedBytes.buffer; // Retorna o buffer combinado
+  }
+
+  // Função auxiliar para adicionar os 2 bytes declarando o tamanho da sessão ID
+  private encodeWithLength(str: string): Uint8Array {
+    const stringBytes = new TextEncoder().encode(str); // Converte a string da sessão ID em bytes
+    const length = stringBytes.length; // Pega o tamanho da sessão ID
+
+    // Cria os dois primeiros bytes que representam o tamanho da sessão ID
+    const lengthBytes = new Uint8Array(2);
+    lengthBytes[0] = (length >> 8) & 0xff; // Byte superior do tamanho
+    lengthBytes[1] = length & 0xff;        // Byte inferior do tamanho
+
+    // Combina os bytes de tamanho com os bytes da sessão ID
+    const combined = new Uint8Array(lengthBytes.length + stringBytes.length);
+    combined.set(lengthBytes, 0); // Primeiro os bytes de tamanho
+    combined.set(stringBytes, lengthBytes.length); // Depois os bytes da sessão ID
+
+    return combined;
+  }
+
+  // Função para processar a segunda requisição (sem alteração)
+  processarResposta(byteArray: Uint8Array): Setor[] {
+    let offset = 0;
+
+    const sessaoOK = byteArray[offset];
+    offset += 1;
+
+    const ultimaVersao = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+    offset += 2;
+
+    const quantidadeSetores = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+    offset += 2;
+
+    const setores: Setor[] = [];
+
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const setor = new Setor();
+      setor.id = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+      offset += 2;
+
+      const nomeSetorLength = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+      offset += 2;
+      setor.nome = this.bytesToString(byteArray.slice(offset, offset + nomeSetorLength));
+      offset += nomeSetorLength;
+
+      setor.latitude = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+      offset += 4;
+
+      setor.longitude = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+      offset += 4;
+
+      setor.unidade = byteArray[offset];
+      offset += 1;
+
+      setor.subunidade = byteArray[offset];
+      offset += 1;
+
+      setor.status = byteArray[offset];
+      offset += 1;
+
+      setor.tipo = byteArray[offset];
+      offset += 1;
+
+      const tamanhoArrayGrafico = byteArray[offset];
+      offset += 1;
+
+      const quantidadeTags = byteArray[offset];
+      offset += 1;
+
+      for (let j = 0; j < quantidadeTags; j++) {
+        const tag = new Tag();
+        tag.id = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+
+        const nomeTagLength = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+        tag.nome = this.bytesToString(byteArray.slice(offset, offset + nomeTagLength));
+        offset += nomeTagLength;
+
+        tag.tipo = byteArray[offset];
+        offset += 1;
+
+        tag.max = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        tag.min = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        tag.status = byteArray[offset];
+        offset += 1;
+
+        setor.tags.set(tag.id, tag);
+      }
+
+      const quantidadeAlarmes = byteArray[offset];
+      offset += 1;
+
+      for (let k = 0; k < quantidadeAlarmes; k++) {
+        const alarme = new Alarme();
+        alarme.id = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+
+        alarme.idTag = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+
+        const nomeAlarmeLength = this.bytesToInt16(byteArray.slice(offset, offset + 2));
+        offset += 2;
+        alarme.nome = this.bytesToString(byteArray.slice(offset, offset + nomeAlarmeLength));
+        offset += nomeAlarmeLength;
+
+        alarme.tipo = byteArray[offset];
+        offset += 1;
+
+        alarme.valorEntrada = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        alarme.valorSaida = this.bytesToFloat(byteArray.slice(offset, offset + 4));
+        offset += 4;
+
+        alarme.ativo = !!byteArray[offset];
+        offset += 1;
+
+        setor.alarmes.set(alarme.id, alarme);
+      }
+
+      setores.push(setor);
+    }
+
+    return setores;
+  }
+
+  // Funções auxiliares
+  private bytesToInt16(bytes: Uint8Array): number {
+    return (bytes[0] << 8) | bytes[1];
+  }
+
+  private bytesToFloat(bytes: Uint8Array): number {
+    const view = new DataView(bytes.buffer);
+    return view.getFloat32(0);
+  }
+
+  private bytesToString(bytes: Uint8Array): string {
+    return new TextDecoder().decode(bytes);
+  }
+}
