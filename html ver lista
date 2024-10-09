@@ -1,0 +1,12 @@
+<div *ngFor="let setor of setores">
+  <h3>Setor: {{ setor.nome }}</h3>
+  <ul>
+    <li>ID: {{ setor.id }}</li>
+    <li>Endereço: {{ setor.endereco }}</li>
+    <li>Latitude: {{ setor.latitude }}</li>
+    <li>Longitude: {{ setor.longitude }}</li>
+    <li>Status: {{ setor.status }}</li>
+    <li>Quantidade de Tags: {{ setor.tags.length }}</li>
+    <li>Quantidade de Alarmes: {{ setor.alarmes.length }}</li>
+  </ul>
+</div>
