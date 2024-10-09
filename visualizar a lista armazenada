@@ -1,0 +1,18 @@
+return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+  map(response => {
+    const byteArray = new Uint8Array(response);
+    console.log('Resposta recebida (bytes):', byteArray);
+
+    const setores = this.parseSecondResponse(byteArray);
+    
+    // Aqui você pode visualizar os setores com suas tags e alarmes no console
+    console.log('Lista completa de setores:', JSON.stringify(setores, null, 2));
+
+    return setores;
+  }),
+
+  catchError(error => {
+    console.error('Erro ao fazer a segunda requisição', error);
+    return throwError(() => error);
+  })
+);
