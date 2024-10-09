@@ -1,0 +1,219 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable, throwError } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
+import { Alarme } from '../../models/alarme.model';
+import { Setor } from '../../models/setor.model';
+import { Tag } from '../../models/tag.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class EntradaService {
+  private apiUrl = 'http://10.20.96.221:8043/dados';  // URL da API
+
+  constructor(private http: HttpClient) {}  // Injeta o HttpClient para fazer requisições HTTP
+
+  // Função que faz a segunda requisição ao servidor, enviando o ID da sessão
+  fazerSegundaRequisicao(sessaoId: string): Observable<any> {
+    const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });  // Configura os headers da requisição
+
+    const comandoSupervisao = 254;  // Comando de supervisão
+    const comandoEstrutura = 237;   // Comando de leitura da estrutura
+
+    // Gera os bytes para enviar no corpo da requisição
+    const body = this.gerarBytesRequisicao(sessaoId, comandoSupervisao, comandoEstrutura);
+
+    console.log('Corpo da requisição (bytes):', body);  // Exibe no console os bytes que serão enviados
+
+    // Realiza o POST da requisição
+    return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+      map(response => {
+        const byteArray = new Uint8Array(response);  // Converte a resposta em um array de bytes
+        console.log('Resposta recebida (bytes):', byteArray);  // Exibe os bytes recebidos no console
+
+        // Processa a resposta e converte os dados em objetos do tipo Setor
+        const setores = this.parseSecondResponse(byteArray);
+        console.log('Setores processados:', setores);  // Exibe os setores processados
+
+        return setores;  // Retorna os setores processados
+      }),
+
+      // Trata erros que podem ocorrer durante a requisição
+      catchError(error => {
+        console.error('Erro ao fazer a segunda requisição', error);  // Exibe o erro no console
+        return throwError(() => error);  // Retorna o erro
+      })
+    );
+  }
+
+  // Gera os bytes da requisição combinando os comandos e o ID da sessão
+  private gerarBytesRequisicao(sessaoId: string, comandoSupervisao: number, comandoEstrutura: number): ArrayBuffer {
+    const sessaoIdBytes = this.encodeWithLength(sessaoId);  // Converte o ID da sessão em bytes
+
+    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]);  // Converte o comando de supervisão em bytes
+    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]);    // Converte o comando de estrutura em bytes
+
+    // Combina os bytes do comando de supervisão, ID da sessão e comando de estrutura
+    const combinedBytes = new Uint8Array(comandoSupervisaoBytes.length + sessaoIdBytes.length + comandoEstruturaBytes.length);
+    combinedBytes.set(comandoSupervisaoBytes, 0);
+    combinedBytes.set(sessaoIdBytes, comandoSupervisaoBytes.length);
+    combinedBytes.set(comandoEstruturaBytes, comandoSupervisaoBytes.length + sessaoIdBytes.length);
+
+    return combinedBytes.buffer;  // Retorna o array de bytes combinado
+  }
+
+  // Função que processa a resposta da segunda requisição e extrai os dados de setores, tags e alarmes
+  private parseSecondResponse(bytes: Uint8Array): Setor[] {
+    let offset = 0;
+
+    const respostaOK = bytes[offset];  // Lê o status da resposta
+    console.log('Resposta de status:', respostaOK);
+    offset += 1;
+
+    const ultimaVersao = (bytes[offset] << 8) | bytes[offset + 1];  // Lê a última versão
+    console.log('Última versão:', ultimaVersao);
+    offset += 2;
+
+    const quantidadeSetores = (bytes[offset] << 8) | bytes[offset + 1];  // Lê a quantidade de setores
+    console.log('Quantidade de setores:', quantidadeSetores);
+    offset += 2;
+
+    const setores: Setor[] = [];  // Inicializa o array de setores
+
+    // Itera sobre a quantidade de setores recebidos
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const setor = new Setor();
+
+      // Lê o ID do setor
+      setor.id = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+
+      // Lê o nome do setor
+      const nomeSetorLength = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+      setor.nome = this.bytesToString(bytes.slice(offset, offset + nomeSetorLength));
+      offset += nomeSetorLength;
+
+      // Lê o endereço do setor (fixo em 50 bytes)
+      setor.endereco = this.bytesToString(bytes.slice(offset, offset + 50)).trim();
+      offset += 50;
+
+      // Lê a latitude e longitude (cada um em 4 bytes)
+      setor.latitude = this.bytesToFloat(bytes.slice(offset, offset + 4));
+      offset += 4;
+      setor.longitude = this.bytesToFloat(bytes.slice(offset, offset + 4));
+      offset += 4;
+
+      // Lê a unidade e subunidade (1 byte cada)
+      setor.unidade = bytes[offset];
+      offset += 1;
+      setor.subunidade = bytes[offset];
+      offset += 1;
+
+      // Lê o status e o tipo do setor (1 byte cada)
+      setor.status = bytes[offset];
+      offset += 1;
+      setor.tipo = bytes[offset];
+      offset += 1;
+
+      const tamanhoGrafico = bytes[offset];  // Lê o tamanho do array gráfico
+      offset += 1;
+
+      // Lê os gráficos (array de inteiros de 2 bytes)
+      const arrayGrafico = new Uint16Array(tamanhoGrafico);
+      for (let j = 0; j < tamanhoGrafico; j++) {
+        arrayGrafico[j] = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+      }
+
+      // Lê a quantidade de tags associadas ao setor
+      const quantidadeTags = bytes[offset];
+      console.log(`Setor ${setor.nome} - Quantidade de tags:`, quantidadeTags);
+      offset += 1;
+
+      const tags: Tag[] = [];
+
+      // Itera sobre as tags associadas ao setor
+      for (let j = 0; j < quantidadeTags; j++) {
+        const tag = new Tag();
+
+        // Lê o ID da tag
+        tag.id = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        // Lê o nome da tag
+        const nomeTagLength = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        tag.nome = this.bytesToString(bytes.slice(offset, offset + nomeTagLength));
+        offset += nomeTagLength;
+
+        tags.push(tag);  // Adiciona a tag ao array
+      }
+
+      setor.tags = tags;  // Associa as tags ao setor
+
+      // Lê a quantidade de alarmes associados ao setor
+      const quantidadeAlarmes = bytes[offset];
+      console.log(`Setor ${setor.nome} - Quantidade de alarmes:`, quantidadeAlarmes);
+      offset += 1;
+
+      const alarmes: Alarme[] = [];
+
+      // Itera sobre os alarmes associados ao setor
+      for (let k = 0; k < quantidadeAlarmes; k++) {
+        const alarme = new Alarme();
+
+        // Lê o ID do alarme
+        alarme.id = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        // Lê o nome do alarme
+        const nomeAlarmeLength = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        alarme.nome = this.bytesToString(bytes.slice(offset, offset + nomeAlarmeLength));
+        offset += nomeAlarmeLength;
+
+        alarmes.push(alarme);  // Adiciona o alarme ao array
+      }
+
+      setor.alarmes = alarmes;  // Associa os alarmes ao setor
+      setores.push(setor);  // Adiciona o setor ao array de setores
+      console.log(`Setor recebido: ${setor.nome}`);
+    }
+
+    return setores;  // Retorna os setores processados
+  }
+
+  // Converte um array de bytes em uma string
+  private bytesToString(bytes: Uint8Array): string {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
+  // Converte um array de bytes em um número de ponto flutuante (float)
+  private bytesToFloat(bytes: Uint8Array): number {
+    const buffer = new ArrayBuffer(4);
+    const view = new Float32Array(buffer);
+    const intView = new Uint8Array(buffer);
+    for (let i = 0; i < 4; i++) {
+      intView[i] = bytes[i];
+    }
+    return view[0];
+  }
+
+  // Codifica uma string como um array de bytes e adiciona o comprimento da string nos primeiros 2 bytes
+  private encodeWithLength(str: string): Uint8Array {
+    const stringBytes = new TextEncoder().encode(str);
+    const length = stringBytes.length;
+
+    const lengthBytes = new Uint8Array(2);
+    lengthBytes[0] = (length >> 8) & 0xff;
+    lengthBytes[1] = length & 0xff;
+
+    const combined = new Uint8Array(lengthBytes.length + stringBytes.length);
+    combined.set(lengthBytes, 0);
+    combined.set(stringBytes, lengthBytes.length);
+
+    return combined;
+  }
+}
