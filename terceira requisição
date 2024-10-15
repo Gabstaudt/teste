@@ -1,0 +1,135 @@
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class TerceiraRequisicaoService {
+
+  constructor(private http: HttpClient) { }
+
+  // Método que envia o comando da terceira requisição
+  enviarComandoSalvar(sessaoId: string): Observable<any> {
+    // Gera o comando da terceira requisição
+    const comando = this.criarComando(sessaoId);
+    // Realiza a requisição HTTP POST com o comando gerado
+    return this.http.post('/api/terceira-requisicao', comando, { responseType: 'arraybuffer' });
+  }
+
+  // Função para criar o comando da terceira requisição
+  private criarComando(sessaoId: string): Uint8Array {
+    const comandoSupervisao = 254; // Comando de supervisão
+    const comandoLerDados = 236; // Comando para ler os dados
+
+    // Cria um buffer de 34 bytes (conforme especificado)
+    const buffer = new ArrayBuffer(34);
+    const dataView = new DataView(buffer);
+
+    // Comando de supervisão (254)
+    dataView.setUint8(0, comandoSupervisao);
+
+    // Insere o ID da sessão (32 bytes)
+    for (let i = 0; i < sessaoId.length; i++) {
+      dataView.setUint8(1 + i, sessaoId.charCodeAt(i));
+    }
+
+    // Comando de ler dados (236) na posição 33
+    dataView.setUint8(33, comandoLerDados);
+
+    return new Uint8Array(buffer); // Retorna o buffer gerado como Uint8Array
+  }
+
+  // Função para processar a resposta da terceira requisição
+  processarResposta(buffer: ArrayBuffer): any {
+    const dataView = new DataView(buffer);
+    const sessaoOk = dataView.getUint8(0); // Verifica se a sessão está ok (byte 0)
+
+    if (sessaoOk === 0) { // Caso receba erro de sessão
+      const erro = dataView.getUint8(1);
+      return { erro: `Erro de sessão: ${erro}` };
+    }
+
+    // Lê o byte indicando atualização disponível e a quantidade de setores
+    const atualizacaoDisponivel = dataView.getUint8(1);
+    const quantidadeSetores = dataView.getUint8(2);
+    
+    let offset = 3; // Define o offset inicial (a partir do byte 3)
+    const setores: any[] = []; // Array para armazenar dados dos setores
+
+    // Laço 1: Processa cada setor com base na quantidade recebida
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const idSetor = dataView.getUint16(offset); // Lê o ID do setor
+      offset += 2; // Incrementa o offset em 2 bytes
+
+      const tempoInformacao = Number(dataView.getBigUint64(offset)); // Lê o tempo (Unix)
+      offset += 8; // Incrementa o offset em 8 bytes
+
+      const status = dataView.getUint8(offset); // Lê o status do setor
+      offset += 1;
+
+      const quantidadeInteiros = dataView.getUint8(offset); // Lê a quantidade de inteiros
+      offset += 1;
+
+      const quantidadeBooleanos = dataView.getUint8(offset); // Lê a quantidade de booleanos
+      offset += 1;
+
+      const quantidadeAlarmes = dataView.getUint8(offset); // Lê a quantidade de alarmes
+      offset += 1;
+
+      // Arrays para armazenar os dados processados
+      const inteiros = [];
+      const booleanos = [];
+      const alarmes = [];
+
+      // Laço 2: Processa as tags inteiras (ID e valor)
+      for (let j = 0; j < quantidadeInteiros; j++) {
+        const idTagInteira = dataView.getUint16(offset); // Lê o ID da tag inteira
+        offset += 2;
+        const valorTagInteira = dataView.getUint32(offset); // Lê o valor da tag inteira
+        offset += 4;
+        inteiros.push({ id: idTagInteira, valor: valorTagInteira });
+      }
+
+      // Laço 3: Processa as tags booleanas (somente o ID)
+      for (let j = 0; j < quantidadeBooleanos; j++) {
+        const idTagBooleana = dataView.getUint16(offset); // Lê o ID da tag booleana
+        offset += 2;
+        booleanos.push({ id: idTagBooleana });
+      }
+
+      // Laço 4: Processa os valores booleanos em bits, agrupados em bytes
+      const quantidadeBytesBooleanos = Math.ceil(quantidadeBooleanos / 8);
+      const valoresBooleanos: boolean[] = [];
+      for (let j = 0; j < quantidadeBytesBooleanos; j++) {
+        const byteValores = dataView.getUint8(offset); // Lê um byte de valores booleanos
+        offset += 1;
+        for (let bit = 0; bit < 8 && (j * 8 + bit) < quantidadeBooleanos; bit++) {
+          valoresBooleanos.push((byteValores & (1 << bit)) !== 0); // Extrai o bit e converte para boolean
+        }
+      }
+
+      // Laço 5: Processa os alarmes (ID e tempo)
+      for (let j = 0; j < quantidadeAlarmes; j++) {
+        const idAlarme = dataView.getUint16(offset); // Lê o ID do alarme
+        offset += 2;
+        const tempoAlarme = Number(dataView.getBigUint64(offset)); // Lê o tempo do alarme (Unix)
+        offset += 8;
+        alarmes.push({ id: idAlarme, tempo: new Date(tempoAlarme * 1000) });
+      }
+
+      // Adiciona os dados do setor ao array de setores
+      setores.push({
+        id: idSetor,
+        tempoInformacao: new Date(tempoInformacao * 1000), // Converte Unix para Data
+        status: status, 
+        inteiros: inteiros, 
+        booleanos: booleanos, 
+        valoresBooleanos: valoresBooleanos, 
+        alarmes: alarmes 
+      });
+    }
+
+    return setores; // Retorna os dados processados dos setores
+  }
+}
