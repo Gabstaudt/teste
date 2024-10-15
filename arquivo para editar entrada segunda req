@@ -1,0 +1,60 @@
+fazerSegundaRequisicao(sessaoId: string): Observable<any> {
+  const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }); 
+  const comandoSupervisao = 254;
+  const comandoEstrutura = 237; 
+
+  const body = this.gerarBytesRequisicao(sessaoId, comandoSupervisao, comandoEstrutura);
+  
+  console.log('Corpo da requisição (bytes):', body);
+
+  return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+    map(response => {
+      const byteArray = new Uint8Array(response); 
+      console.log('Resposta recebida (bytes):', byteArray); 
+
+      const setores = this.parseSecondResponse(byteArray); 
+      console.log('Setores processados:', setores); 
+
+      // Aqui você chama a terceira requisição logo após a segunda
+      this.fazerTerceiraRequisicao(sessaoId).subscribe(
+        terceiraResposta => {
+          console.log('Resposta da terceira requisição:', terceiraResposta);
+        },
+        erro => {
+          console.error('Erro na terceira requisição', erro);
+        }
+      );
+
+      return setores;
+    }),
+    catchError(error => {
+      console.error('Erro ao fazer a segunda requisição', error); 
+      return throwError(() => error);
+    })
+  );
+}
+
+// Defina sua terceira requisição
+fazerTerceiraRequisicao(sessaoId: string): Observable<any> {
+  // Lógica similar à segunda requisição para enviar os dados e processar a resposta
+  const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
+  const comandoTerceiraRequisicao = 236; // Defina o comando apropriado para a terceira requisição
+
+  const body = this.gerarBytesRequisicao(sessaoId, comandoSupervisao, comandoTerceiraRequisicao);
+  
+  return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+    map(response => {
+      const byteArray = new Uint8Array(response);
+      console.log('Resposta da terceira requisição (bytes):', byteArray);
+
+      // Parse da resposta da terceira requisição
+      // ...
+
+      return byteArray;  // Retorne os dados processados conforme necessário
+    }),
+    catchError(error => {
+      console.error('Erro na terceira requisição', error);
+      return throwError(() => error);
+    })
+  );
+}
