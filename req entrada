@@ -1,0 +1,66 @@
+import { Injectable } from '@angular/core';
+import { BehaviorSubject } from 'rxjs';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class EntradaService {
+  // Lista global de setores
+  private setoresSubject = new BehaviorSubject<any[]>([]);
+  setores$ = this.setoresSubject.asObservable();
+  private setoresGlobal: any[] = [];
+
+  // Método para inicializar a lista global de setores
+  inicializarSetores(setores: any[]) {
+    this.setoresGlobal = setores;
+    this.setoresSubject.next(this.setoresGlobal); // Atualiza a lista observável
+  }
+
+  // Método para buscar um setor pelo ID
+  buscarSetorPorId(idSetor: number): any | undefined {
+    return this.setoresGlobal.find(setor => setor.id === idSetor);
+  }
+
+  // Método para atualizar a lista global de setores e suas sublistas
+  atualizarSetor(setorAtualizado: any) {
+    const setorExistente = this.buscarSetorPorId(setorAtualizado.id);
+    
+    if (setorExistente) {
+      // Atualiza os atributos do setor existente
+      setorExistente.tempoInformacao = setorAtualizado.tempoInformacao;
+      setorExistente.status = setorAtualizado.status;
+
+      // Atualiza as sublistas de inteiros
+      setorExistente.inteiros.forEach((inteiro: any) => {
+        const novoInteiro = setorAtualizado.inteiros.find((tag: any) => tag.id === inteiro.id);
+        if (novoInteiro) {
+          inteiro.valor = novoInteiro.valor; // Atualiza o valor
+        }
+      });
+
+      // Atualiza as sublistas de booleanos
+      setorExistente.booleanos.forEach((booleano: any) => {
+        const novoBooleano = setorAtualizado.booleanos.find((tag: any) => tag.id === booleano.id);
+        if (novoBooleano) {
+          booleano.valor = novoBooleano.valor; // Atualiza o valor, se necessário
+        }
+      });
+
+      // Atualiza a sublista de alarmes
+      setorExistente.alarmes.forEach((alarme: any) => {
+        const novoAlarme = setorAtualizado.alarmes.find((alarm: any) => alarm.id === alarme.id);
+        if (novoAlarme) {
+          alarme.tempo = novoAlarme.tempo; // Atualiza o tempo
+        }
+      });
+      
+      // Atualiza o BehaviorSubject
+      this.setoresSubject.next(this.setoresGlobal);
+    }
+  }
+
+  // Exibe os setores atualizados no console
+  exibirSetoresAtualizados() {
+    console.log('Setores atualizados:', this.setoresGlobal);
+  }
+}
