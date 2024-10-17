@@ -1,0 +1,143 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable, throwError } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
+import { Alarme } from '../../models/alarme.model';
+import { Setor } from '../../models/setor.model';
+import { Tag } from '../../models/tag.model';
+import { TerceiraRequisicaoService } from '../authdados/dados.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class EntradaService {
+  private apiUrl = 'http://172.74.0.167:8043/dados';
+
+  constructor(
+    private http: HttpClient,
+    private terceiraRequisicaoService: TerceiraRequisicaoService 
+  ) {}
+
+  // Função para fazer a segunda requisição, recebendo a Sessão ID como parâmetro
+  fazerSegundaRequisicao(sessaoId: string): Observable<any> {
+    const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
+
+    const comandoSupervisao = 254;
+    const comandoEstrutura = 237;
+
+    // Gerar os bytes da requisição
+    const body = this.gerarBytesRequisicao(sessaoId, comandoSupervisao, comandoEstrutura);
+
+    return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+      // Manipulação da resposta
+      map(response => {
+        const byteArray = new Uint8Array(response);
+        console.log('Resposta recebida (bytes):', byteArray);
+
+        // Parsear a resposta e obter os setores
+        const setores = this.parseSecondResponse(byteArray);
+        console.log('Setores processados:', setores);
+
+        // Verifica se a resposta OK está presente e é válida antes de continuar
+        if (byteArray[0] === 1) {  // Se resposta OK (ajuste conforme a lógica de resposta)
+          console.log('Resposta de supervisão válida, procedendo para a terceira requisição.');
+          return setores;  // Retorna os setores processados
+        } else {
+          throw new Error('Erro na segunda requisição: Resposta de supervisão inválida.');
+        }
+      }),
+      // Chama a terceira requisição após a segunda, com base no ID de sessão
+      switchMap(setores => {
+        return this.terceiraRequisicaoService.enviarComandoSalvar(sessaoId).pipe(
+          map(terceiraResposta => {
+            console.log('Terceira requisição completa:', terceiraResposta);
+            return { setores, terceiraResposta };  // Retorna tanto os setores quanto a resposta da terceira requisição
+          })
+        );
+      }),
+      catchError(error => {
+        console.error('Erro ao fazer a segunda requisição', error);
+        return throwError(() => error);
+      })
+    );
+  }
+
+  // Gerar os bytes da requisição
+  private gerarBytesRequisicao(sessaoId: string, comandoSupervisao: number, comandoEstrutura: number): ArrayBuffer {
+    const sessaoIdBytes = this.encodeWithLength(sessaoId);
+    const comandoSupervisaoBytes = new Uint8Array([comandoSupervisao]);
+    const comandoEstruturaBytes = new Uint8Array([comandoEstrutura]);
+
+    const combinedBytes = new Uint8Array(comandoSupervisaoBytes.length + sessaoIdBytes.length + comandoEstruturaBytes.length);
+    combinedBytes.set(comandoSupervisaoBytes, 0);
+    combinedBytes.set(sessaoIdBytes, comandoSupervisaoBytes.length);
+    combinedBytes.set(comandoEstruturaBytes, comandoSupervisaoBytes.length + sessaoIdBytes.length);
+
+    return combinedBytes.buffer;
+  }
+
+  // Interpretar os bytes da resposta e processar os setores, tags e alarmes
+  private parseSecondResponse(bytes: Uint8Array): Setor[] {
+    let offset = 0;
+
+    const respostaOK = bytes[offset];  // Verificar a resposta de status (byte 0)
+    offset += 1;
+
+    const ultimaVersao = (bytes[offset] << 8) | bytes[offset + 1];
+    offset += 2;
+
+    const quantidadeSetores = (bytes[offset] << 8) | bytes[offset + 1];
+    offset += 2;
+
+    const setores: Setor[] = [];
+
+    // Laço 1: Processa os setores
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const setor = new Setor();
+
+      setor.id = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+
+      const nomeSetorLength = (bytes[offset] << 8) | bytes[offset + 1];
+      offset += 2;
+      setor.nome = this.bytesToString(bytes.slice(offset, offset + nomeSetorLength));
+      offset += nomeSetorLength;
+
+      // Outros campos do setor...
+
+      setores.push(setor);
+    }
+
+    return setores;
+  }
+
+  // Conversão de string para bytes com comprimento
+  private encodeWithLength(str: string): Uint8Array {
+    const stringBytes = new TextEncoder().encode(str);
+    const length = stringBytes.length;
+
+    const lengthBytes = new Uint8Array(2);
+    lengthBytes[0] = (length >> 8) & 0xff;
+    lengthBytes[1] = length & 0xff;
+
+    const combined = new Uint8Array(lengthBytes.length + stringBytes.length);
+    combined.set(lengthBytes, 0);
+    combined.set(stringBytes, lengthBytes.length);
+
+    return combined;
+  }
+
+  // Conversão de bytes para string
+  private bytesToString(bytes: Uint8Array): string {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
+  // Converte um array de bytes para número float
+  private bytesToFloat(bytes: Uint8Array): number {
+    if (bytes.length !== 4) {
+      throw new Error('O array de bytes para conversão em float deve ter 4 bytes.');
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return view.getFloat32(0, false);
+  }
+}
