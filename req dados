@@ -1,0 +1,92 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { catchError, map } from 'rxjs/operators';
+import { Observable, throwError } from 'rxjs';
+import { EntradaService } from './entrada.service'; // Importe o serviço que gerencia a lista global
+
+@Injectable({
+  providedIn: 'root'
+})
+export class TerceiraRequisicaoService {
+  private apiUrl = 'http://172.74.0.167:8043/dados'; // Substitua pelo seu endpoint
+
+  constructor(private http: HttpClient, private entradaService: EntradaService) {}
+
+  enviarComandoSalvar(sessaoId: string): Observable<any> {
+    const headers = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
+    const body = this.gerarBytesRequisicao(sessaoId);
+
+    return this.http.post(this.apiUrl, body, { headers, responseType: 'arraybuffer' }).pipe(
+      map(response => this.processarResposta(response)),
+      catchError(err => {
+        console.error('Erro na terceira requisição:', err);
+        return throwError(() => new Error('Erro na terceira requisição'));
+      })
+    );
+  }
+
+  // Gera os bytes da requisição
+  private gerarBytesRequisicao(sessaoId: string): ArrayBuffer {
+    // Lógica para gerar bytes da requisição...
+    return new Uint8Array([/* seus bytes */]).buffer;
+  }
+
+  // Processa a resposta da terceira requisição
+  private processarResposta(buffer: ArrayBuffer) {
+    let offset = 0;
+    const dataView = new DataView(buffer);
+
+    // Parse da resposta da terceira requisição
+    const quantidadeSetores = dataView.getUint16(offset);
+    offset += 2;
+
+    // Laço 1: Processa cada setor e atualiza
+    for (let i = 0; i < quantidadeSetores; i++) {
+      const idSetor = dataView.getUint16(offset);
+      offset += 2;
+
+      const tempoInformacao = Number(dataView.getBigUint64(offset));
+      offset += 8;
+
+      const status = dataView.getUint8(offset);
+      offset += 1;
+
+      const inteiros = this.processarInteiros(dataView, offset);
+      const booleanos = this.processarBooleanos(dataView, offset);
+      const alarmes = this.processarAlarmes(dataView, offset);
+
+      const setorAtualizado = {
+        id: idSetor,
+        tempoInformacao: new Date(tempoInformacao * 1000),
+        status: status,
+        inteiros: inteiros,
+        booleanos: booleanos,
+        alarmes: alarmes
+      };
+
+      // Atualiza o setor na lista global
+      this.entradaService.atualizarSetor(setorAtualizado);
+    }
+
+    // Exibe os setores atualizados no console
+    this.entradaService.exibirSetoresAtualizados();
+  }
+
+  private processarInteiros(dataView: DataView, offset: number) {
+    const inteiros: any[] = [];
+    // Lógica para processar inteiros
+    return inteiros;
+  }
+
+  private processarBooleanos(dataView: DataView, offset: number) {
+    const booleanos: any[] = [];
+    // Lógica para processar booleanos
+    return booleanos;
+  }
+
+  private processarAlarmes(dataView: DataView, offset: number) {
+    const alarmes: any[] = [];
+    // Lógica para processar alarmes
+    return alarmes;
+  }
+}
