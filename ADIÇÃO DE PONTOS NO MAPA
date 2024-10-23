@@ -1,0 +1,52 @@
+private adicionarPontosNoMapa(setores: Setor[]): void {
+  setores.forEach(setor => {
+    const lat = setor.latitude;
+    const lng = setor.longitude;
+    const status = setor.status;
+    const tags = setor.tags;
+    const nomeSetor = setor.nome;
+
+    let ultimoTempoFormatado: string = '';
+    let iconeSrc = 'assets/image/on.png'; // Ícone verde por padrão
+
+    if (setor.ultimoTempo instanceof Date) {
+      ultimoTempoFormatado = this.formatarData(setor.ultimoTempo);
+      const agora = new Date();
+      const tempoDecorrido = (agora.getTime() - setor.ultimoTempo.getTime()) / 1000 / 60;
+
+      if (tempoDecorrido > 3) {
+        iconeSrc = 'assets/image/off.png'; // Muda para ícone vermelho
+      }
+    } else {
+      ultimoTempoFormatado = 'Data inválida';
+    }
+
+    console.log(`Ícone a ser usado: ${iconeSrc}`);
+
+    if (this.isValido(lat) && this.isValido(lng) && !(lat === 0 && lng === 0) && status !== 0) {
+      const icon = L.icon({
+        iconUrl: iconeSrc,
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34]
+      });
+
+      const marker = L.marker([lat, lng], { icon }).addTo(this.map);
+
+      let tagsString = '';
+      if (tags && tags.length > 0) {
+        tagsString = tags.filter(tag => !tag.vazia)
+                         .map(tag => `<li>${tag.nome}</li>`).join('');
+      }
+
+      marker.bindPopup(`
+        <div class="leaflet-popup-content">
+          <b>Nome do Setor:</b> ${nomeSetor}<br>
+          <b>Último Tempo:</b> ${ultimoTempoFormatado}<br>
+          <b>Tags:</b>
+          <ul>${tagsString || '<li>Nenhuma tag disponível</li>'}</ul>
+        </div>
+      `).openPopup();
+    }
+  });
+}
